@@ -9,7 +9,7 @@ We recommend the following configurations:
 ## Stage One - Coarse Image Generation
 - Generate the coarse stylized images
 - For training GAN-DM stage one, your directory tree should be look like this:
-$ROOT/input
+- $ROOT/input
 ├── content
 │   ├── xxx.png
 │   ├── xxx.png
