@@ -32,7 +32,7 @@ $ROOT/input
 python stage1Train.py --content_dir /input/content --style_dir /input/style
 ```
 
-### 2. Testing (STAGE 2)
+### 2. Testing (STAGE 1)
 - Put your trained model to *./experiments/stage1/* folder.
 - Use same content images to *./input/content/* folder.
 - Use same style images to *./input/style/* folder.
