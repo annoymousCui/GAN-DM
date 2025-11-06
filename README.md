@@ -6,7 +6,7 @@ We recommend the following configurations:
 - PyTorch 2.3.0
 - CUDA 12.1
 
-## Stage One - Coarse Image Generation
+## Stage One ： Coarse Image Generation
 - Generate the coarse stylized images
 - For training GAN-DM stage one, your directory tree should be look like this:
 ```
@@ -43,7 +43,7 @@ python stage1Test.py --content /input/content --style /input/style
 ```
 
 
-## Stage Two - Image Fine-Tuning
+## Stage Two ： Image Fine-Tuning
 - Generate the refine stylized images
 - For training GAN-DM stage two, your input folder should be the output folder for Stage One *./stylized/stage1/* folder.
 
