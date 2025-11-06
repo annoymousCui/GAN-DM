@@ -2,7 +2,7 @@
   
 ## Requirements  
 We recommend the following configurations:  
-- python 3.9
+- Python 3.9
 - PyTorch 2.3.0
 - CUDA 12.1
 
