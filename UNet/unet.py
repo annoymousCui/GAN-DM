@@ -122,12 +122,22 @@ class LinearAttention(nn.Module):
             b1, c1, h1, w1 = qkv[0].shape
             if c1 is not c:
                 masks = torch.chunk(masks, chunks=c//c1, dim=1)[0]
-            A = torch.sum(q)
-            # d = int(c / self.heads)
-            q1 = masks.reshape(b, self.heads, 32, h*w)
+
+            half_kernel = 3
+
+            for b_idx, c_idx, y, x in zip(b_coords, c_coords, y_coords, x_coords):
+
+                y_start = max(0, y - half_kernel)
+                y_end = min(h1 - 1, y + half_kernel)
+                x_start = max(0, x - half_kernel)
+                x_end = min(w1 - 1, x + half_kernel)
+                pixel_val = masks[b_idx, c_idx, y, x]
+                padded_masks[b_idx, c_idx, y_start:y_end + 1, x_start:x_end + 1] = pixel_val
+
+            # 重塑处理后的掩码
+            q1 = padded_masks.reshape(b, self.heads, 32, h * w)
             q = q + 0.5 * q1
-            B = torch.sum(q)
-            C = torch.sum(q1)
+
         q = q.softmax(dim=-2)
         k = k.softmax(dim=-1)
 
