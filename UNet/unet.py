@@ -1,9 +1,9 @@
 from functools import partial
 from einops import rearrange, reduce
-import torch
+
 from torch import nn, einsum
 import torch.nn.functional as F
-from util.networkHelper import *
+from utils.networkHelper import *
 
 
 class WeightStandardizedConv2d(nn.Conv2d):
@@ -47,7 +47,6 @@ class Block(nn.Module):
 
 
 class ResnetBlock(nn.Module):
-    """https://arxiv.org/abs/1512.03385"""
 
     def __init__(self, dim, dim_out, *, time_emb_dim=None, groups=8):
         super().__init__()
@@ -76,7 +75,7 @@ class ResnetBlock(nn.Module):
 class Attention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
-        self.scale = dim_head**-0.5
+        self.scale = dim_head ** -0.5
         self.heads = heads
         hidden_dim = dim_head * heads
         self.to_qkv = nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)
@@ -88,7 +87,27 @@ class Attention(nn.Module):
         q, k, v = map(
             lambda t: rearrange(t, "b (h c) x y -> b h c (x y)", h=self.heads), qkv
         )
-        q = q * self.scale
+
+        if masks is not None:
+            b1, c1, h1, w1 = qkv[0].shape
+            if c1 != c:
+                masks = torch.chunk(masks, chunks=c // c1, dim=1)[0]
+
+                # 使用 unfold 实现向量化的局部扩展
+            kernel_size = 7  # half_kernel=3 -> 7x7 kernel
+            padding = 3
+            unfolded_masks = F.unfold(masks, kernel_size=kernel_size, padding=padding, stride=1)
+            unfolded_masks = unfolded_masks.view(b, c1, kernel_size * kernel_size, h1, w1)
+
+            # 取中心像素值扩展到整个邻域
+            center_idx = kernel_size * kernel_size // 2
+            center_vals = unfolded_masks[:, :, center_idx:center_idx + 1, :, :]
+            padded_masks = center_vals.expand(-1, -1, kernel_size * kernel_size, -1, -1)
+            padded_masks = padded_masks.reshape(b, c1 * kernel_size * kernel_size, h1 * w1)
+            padded_masks = F.fold(padded_masks, (h1, w1), kernel_size=kernel_size, padding=padding, stride=1)
+
+            q1 = padded_masks.reshape(b, self.heads, 32, h * w)
+            q = q + 0.5 * q1
 
         sim = einsum("b h d i, b h d j -> b h i j", q, k)
         sim = sim - sim.amax(dim=-1, keepdim=True).detach()
@@ -102,7 +121,7 @@ class Attention(nn.Module):
 class LinearAttention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
         super().__init__()
-        self.scale = dim_head**-0.5
+        self.scale = dim_head ** -0.5
         self.heads = heads
         hidden_dim = dim_head * heads
         self.to_qkv = nn.Conv2d(dim, hidden_dim * 3, 1, bias=False)
@@ -117,24 +136,24 @@ class LinearAttention(nn.Module):
             lambda t: rearrange(t, "b (h c) x y -> b h c (x y)", h=self.heads), qkv
         )
 
-        # q1 = lambda z: rearrange(z, "b (h c) x y -> b h c (x y)", h=self.heads), masks
         if masks is not None:
             b1, c1, h1, w1 = qkv[0].shape
-            if c1 is not c:
-                masks = torch.chunk(masks, chunks=c//c1, dim=1)[0]
+            if c1 != c:
+                masks = torch.chunk(masks, chunks=c // c1, dim=1)[0]
 
-            half_kernel = 3
+                # 使用 unfold 实现向量化的局部扩展
+            kernel_size = 7  # half_kernel=3 -> 7x7 kernel
+            padding = 3
+            unfolded_masks = F.unfold(masks, kernel_size=kernel_size, padding=padding, stride=1)
+            unfolded_masks = unfolded_masks.view(b, c1, kernel_size * kernel_size, h1, w1)
 
-            for b_idx, c_idx, y, x in zip(b_coords, c_coords, y_coords, x_coords):
+            # 取中心像素值扩展到整个邻域
+            center_idx = kernel_size * kernel_size // 2
+            center_vals = unfolded_masks[:, :, center_idx:center_idx + 1, :, :]
+            padded_masks = center_vals.expand(-1, -1, kernel_size * kernel_size, -1, -1)
+            padded_masks = padded_masks.reshape(b, c1 * kernel_size * kernel_size, h1 * w1)
+            padded_masks = F.fold(padded_masks, (h1, w1), kernel_size=kernel_size, padding=padding, stride=1)
 
-                y_start = max(0, y - half_kernel)
-                y_end = min(h1 - 1, y + half_kernel)
-                x_start = max(0, x - half_kernel)
-                x_end = min(w1 - 1, x + half_kernel)
-                pixel_val = masks[b_idx, c_idx, y, x]
-                padded_masks[b_idx, c_idx, y_start:y_end + 1, x_start:x_end + 1] = pixel_val
-
-            # 重塑处理后的掩码
             q1 = padded_masks.reshape(b, self.heads, 32, h * w)
             q = q + 0.5 * q1
 
@@ -162,14 +181,14 @@ class PreNorm(nn.Module):
 
 class Unet(nn.Module):
     def __init__(
-        self,
-        dim,
-        init_dim=None,
-        out_dim=None,
-        dim_mults=(1, 2, 4, 8),
-        channels=3,
-        self_condition=False,
-        resnet_block_groups=4,
+            self,
+            dim,
+            init_dim=None,
+            out_dim=None,
+            dim_mults=(1, 2, 4, 8),
+            channels=3,
+            self_condition=False,
+            resnet_block_groups=4,
     ):
         super().__init__()
 
@@ -179,7 +198,7 @@ class Unet(nn.Module):
         input_channels = channels * (2 if self_condition else 1)
 
         init_dim = default(init_dim, dim)
-        self.init_conv = nn.Conv2d(input_channels, init_dim, 1, padding=0) # changed to 1 and 0 from 7,3
+        self.init_conv = nn.Conv2d(input_channels, init_dim, 1, padding=0)
 
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
@@ -229,7 +248,7 @@ class Unet(nn.Module):
                 nn.ModuleList(
                     [
                         block_klass(dim_out + dim_in, dim_out, time_emb_dim=time_dim),
-                        block_klass(dim_out + dim_in, dim_out, time_emb_dim=time_dim),
+                        block_klass(dim_out, dim_out, time_emb_dim=time_dim),
                         Residual(PreNorm(dim_out, LinearAttention(dim_out))),
                         Upsample(dim_out, dim_in)
                         if not is_last
@@ -240,7 +259,7 @@ class Unet(nn.Module):
 
         self.out_dim = default(out_dim, channels)
 
-        self.final_res_block = block_klass(dim * 2, dim, time_emb_dim=time_dim)
+        self.final_res_block = block_klass(dim + init_dim, dim, time_emb_dim=time_dim)
         self.final_conv = nn.Conv2d(dim, self.out_dim, 1)
 
     def forward(self, x, time, x_self_cond=None, masks=None):
@@ -255,14 +274,11 @@ class Unet(nn.Module):
         r = x.clone()
 
         t = self.time_mlp(time)
-        # z = self.mask_mlp(masks)
 
         h = []
 
         for block1, block2, attn, downsample in self.downs:
             x = block1(x, t)
-            h.append(x)
-
             x = block2(x, t)
             x = attn(x, masks)
             h.append(x)
@@ -276,10 +292,9 @@ class Unet(nn.Module):
         x = self.mid_block2(x, t)
 
         for block1, block2, attn, upsample in self.ups:
-            x = torch.cat((x, h.pop()), dim=1)
+            skip_connection = h.pop()
+            x = torch.cat((x, skip_connection), dim=1)
             x = block1(x, t)
-
-            x = torch.cat((x, h.pop()), dim=1)
             x = block2(x, t)
             x = attn(x, masks)
 
@@ -291,6 +306,5 @@ class Unet(nn.Module):
 
         x = self.final_res_block(x, t)
         return self.final_conv(x)
-
 
 
