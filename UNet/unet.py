@@ -93,13 +93,11 @@ class Attention(nn.Module):
             if c1 != c:
                 masks = torch.chunk(masks, chunks=c // c1, dim=1)[0]
 
-                # 使用 unfold 实现向量化的局部扩展
             kernel_size = 7  # half_kernel=3 -> 7x7 kernel
             padding = 3
             unfolded_masks = F.unfold(masks, kernel_size=kernel_size, padding=padding, stride=1)
             unfolded_masks = unfolded_masks.view(b, c1, kernel_size * kernel_size, h1, w1)
 
-            # 取中心像素值扩展到整个邻域
             center_idx = kernel_size * kernel_size // 2
             center_vals = unfolded_masks[:, :, center_idx:center_idx + 1, :, :]
             padded_masks = center_vals.expand(-1, -1, kernel_size * kernel_size, -1, -1)
@@ -141,13 +139,11 @@ class LinearAttention(nn.Module):
             if c1 != c:
                 masks = torch.chunk(masks, chunks=c // c1, dim=1)[0]
 
-                # 使用 unfold 实现向量化的局部扩展
             kernel_size = 7  # half_kernel=3 -> 7x7 kernel
             padding = 3
             unfolded_masks = F.unfold(masks, kernel_size=kernel_size, padding=padding, stride=1)
             unfolded_masks = unfolded_masks.view(b, c1, kernel_size * kernel_size, h1, w1)
 
-            # 取中心像素值扩展到整个邻域
             center_idx = kernel_size * kernel_size // 2
             center_vals = unfolded_masks[:, :, center_idx:center_idx + 1, :, :]
             padded_masks = center_vals.expand(-1, -1, kernel_size * kernel_size, -1, -1)
